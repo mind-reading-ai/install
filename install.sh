@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — the org-brain ONE-COMMAND client installer (backlog #101).
+# install.sh — the org-brain ONE-COMMAND client installer (backlog #103).
 #
 #   curl -fsSL https://raw.githubusercontent.com/mind-reading-ai/install/main/install.sh | bash
 #
