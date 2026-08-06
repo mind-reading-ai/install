@@ -30,25 +30,45 @@ main() {
   echo "=== org-brain installer ==="
   echo ""
 
-  # 1) prereqs the DOWNLOAD needs (the onboarder re-checks its own, incl. docker)
-  local missing=0
+  # 1) prereqs the DOWNLOAD needs (the onboarder re-checks its own, incl. docker).
+  #    7d rehearsal finding (Roy 08-06): a fresh Linux box fails three separate
+  #    prereq hurdles before the one real command — on apt systems, OFFER to
+  #    close the gap right here (never silently: the machine is the client's).
+  local missing=()
   for cmd in gh tar node; do
     if ! command -v "$cmd" > /dev/null 2>&1; then
       echo "  MISSING: $cmd is not installed." >&2
-      missing=1
+      missing+=("$cmd")
     fi
   done
-  if [ "$missing" = "1" ]; then
-    echo "" >&2
-    echo "  Install the missing tool(s) above, then paste the install command again." >&2
-    exit 1
+  if [ "${#missing[@]}" -gt 0 ]; then
+    offer_prereq_install "${missing[@]}"
+    # the offer path returns only after installing — re-verify honestly
+    local still=0
+    for cmd in "${missing[@]}"; do
+      if ! command -v "$cmd" > /dev/null 2>&1; then
+        echo "  STILL MISSING after install: $cmd — install it yourself, then retry." >&2
+        still=1
+      fi
+    done
+    if [ "$still" = "1" ]; then exit 1; fi
   fi
+  # 1b) GitHub login — the auth MOMENT stays human (browser device-code);
+  #     the CEREMONY folds in (7d, Roy 08-06: "shouldn't it fold into the
+  #     one-liner too?"). Run the login right here on the real terminal;
+  #     no terminal to run it on = honest stop with the manual command.
   if ! gh auth status > /dev/null 2>&1; then
-    echo "  gh is not authenticated — this is how you access the (private) product." >&2
-    echo "" >&2
-    echo "  Fix, then paste the install command again:" >&2
-    echo "    gh auth login" >&2
-    exit 1
+    echo "  You're not logged into GitHub yet — that's how you access the (private) product."
+    if [ "${INSTALL_SH_STDIN_OK:-}" = "1" ]; then
+      gh auth login || manual_auth_stop
+    elif (: < /dev/tty) 2> /dev/null; then
+      echo "  Starting the login now (a browser code will appear)..."
+      gh auth login < /dev/tty || manual_auth_stop
+    else
+      manual_auth_stop
+    fi
+    # re-verify honestly — a cancelled login must not limp forward
+    gh auth status > /dev/null 2>&1 || manual_auth_stop
   fi
 
   # 2) the onboarder is INTERACTIVE — without a terminal to re-attach, stop
@@ -89,6 +109,64 @@ no_tty_fallback() {
   echo "    mkdir onboarder && tar -xzf onboarder.tar.gz -C onboarder" >&2
   echo "    node onboarder/onboard.js" >&2
   exit 2
+}
+
+# 7d: offer to install missing prereqs via apt (Ubuntu/Debian class). Consent
+# is asked on the REAL terminal (stdin is the curl pipe); default = yes.
+# Anywhere we can't ask or can't act -> manual_prereq_stop, the honest exit.
+offer_prereq_install() {
+  if ! command -v apt-get > /dev/null 2>&1; then manual_prereq_stop "$@"; fi
+  if ! command -v sudo > /dev/null 2>&1; then manual_prereq_stop "$@"; fi
+  local answer=""
+  if [ "${INSTALL_SH_STDIN_OK:-}" = "1" ]; then
+    read -r answer || answer="" # test seam: consent arrives on the pipe
+  elif (: < /dev/tty) 2> /dev/null; then
+    printf "  Install them now with apt-get? [Y/n] " > /dev/tty
+    read -r answer < /dev/tty || answer=""
+  else
+    manual_prereq_stop "$@" # no terminal to ask on — never install unasked
+  fi
+  case "$answer" in
+    n* | N*) manual_prereq_stop "$@" ;;
+  esac
+  echo "  installing: $* ..."
+  sudo apt-get update -qq
+  local m apt_pkgs=()
+  for m in "$@"; do
+    case "$m" in
+      # Ubuntu's default nodejs is older than the onboarder's floor — NodeSource 22
+      node)
+        curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - > /dev/null
+        apt_pkgs+=(nodejs)
+        ;;
+      *) apt_pkgs+=("$m") ;;
+    esac
+  done
+  sudo apt-get install -y "${apt_pkgs[@]}"
+}
+
+manual_auth_stop() {
+  echo "" >&2
+  echo "  GitHub login didn't complete. Log in, then paste the install command again:" >&2
+  echo "    gh auth login" >&2
+  exit 1
+}
+
+manual_prereq_stop() {
+  echo "" >&2
+  if command -v apt-get > /dev/null 2>&1; then
+    echo "  Install the missing tool(s), then paste the install command again:" >&2
+    local m
+    for m in "$@"; do
+      case "$m" in
+        node) echo "    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs" >&2 ;;
+        *) echo "    sudo apt-get install -y $m" >&2 ;;
+      esac
+    done
+  else
+    echo "  Install the missing tool(s) above, then paste the install command again." >&2
+  fi
+  exit 1
 }
 
 main "$@"
