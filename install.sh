@@ -61,8 +61,10 @@ main() {
     echo "  You're not logged into GitHub yet — that's how you access the (private) product."
     # Pre-answer gh's wizard (Roy 08-06: "fold all the answers to the script");
     # the flags ARE the answers — github.com / HTTPS / browser device-code.
+    # --scopes read:packages: the engine IMAGE is a GitHub package; a default
+    # login token gets 403'd at the registry (live-caught, 7d rehearsal step 7).
     # The one surviving human moment: the browser code click.
-    local login_args=(--hostname github.com --git-protocol https --web)
+    local login_args=(--hostname github.com --git-protocol https --web --scopes read:packages)
     if [ "${INSTALL_SH_STDIN_OK:-}" = "1" ]; then
       gh auth login "${login_args[@]}" || manual_auth_stop
     elif (: < /dev/tty) 2> /dev/null; then
@@ -73,6 +75,22 @@ main() {
     fi
     # re-verify honestly — a cancelled login must not limp forward
     gh auth status > /dev/null 2>&1 || manual_auth_stop
+  fi
+  # Already-logged-in tokens may still lack the packages scope (the 7d
+  # rehearsal's exact case: logged in mid-run, 403'd at the registry two
+  # steps later). Heal inline — same fold-the-ceremony rule; browser click
+  # again, or an honest stop when there's no terminal to ask on.
+  if ! gh auth status 2>&1 | grep -q ':packages'; then
+    echo "  Your GitHub login is missing the 'read packages' permission (needed to download the engine)."
+    if [ "${INSTALL_SH_STDIN_OK:-}" = "1" ]; then
+      gh auth refresh -s read:packages || manual_scope_stop
+    elif (: < /dev/tty) 2> /dev/null; then
+      echo "  Adding it now (browser code again)..."
+      gh auth refresh -s read:packages < /dev/tty || manual_scope_stop
+    else
+      manual_scope_stop
+    fi
+    gh auth status 2>&1 | grep -q ':packages' || manual_scope_stop
   fi
 
   # 2) the onboarder is INTERACTIVE — without a terminal to re-attach, stop
@@ -152,7 +170,14 @@ offer_prereq_install() {
 manual_auth_stop() {
   echo "" >&2
   echo "  GitHub login didn't complete. Log in, then paste the install command again:" >&2
-  echo "    gh auth login" >&2
+  echo "    gh auth login --scopes read:packages" >&2
+  exit 1
+}
+
+manual_scope_stop() {
+  echo "" >&2
+  echo "  Couldn't add the 'read packages' permission. Add it, then paste the install command again:" >&2
+  echo "    gh auth refresh -s read:packages" >&2
   exit 1
 }
 
