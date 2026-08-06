@@ -59,11 +59,15 @@ main() {
   #     no terminal to run it on = honest stop with the manual command.
   if ! gh auth status > /dev/null 2>&1; then
     echo "  You're not logged into GitHub yet — that's how you access the (private) product."
+    # Pre-answer gh's wizard (Roy 08-06: "fold all the answers to the script");
+    # the flags ARE the answers — github.com / HTTPS / browser device-code.
+    # The one surviving human moment: the browser code click.
+    local login_args=(--hostname github.com --git-protocol https --web)
     if [ "${INSTALL_SH_STDIN_OK:-}" = "1" ]; then
-      gh auth login || manual_auth_stop
+      gh auth login "${login_args[@]}" || manual_auth_stop
     elif (: < /dev/tty) 2> /dev/null; then
       echo "  Starting the login now (a browser code will appear)..."
-      gh auth login < /dev/tty || manual_auth_stop
+      gh auth login "${login_args[@]}" < /dev/tty || manual_auth_stop
     else
       manual_auth_stop
     fi
