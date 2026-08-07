@@ -152,19 +152,22 @@ offer_prereq_install() {
     n* | N*) manual_prereq_stop "$@" ;;
   esac
   echo "  installing: $* ..."
-  sudo apt-get update -qq
+  # R1 MINOR-4: under set -e a curl/apt failure here would kill the script
+  # mid-line with no guidance — every failure path in this file must end at
+  # an honest stop that names the retry.
+  sudo apt-get update -qq || manual_prereq_stop "$@"
   local m apt_pkgs=()
   for m in "$@"; do
     case "$m" in
       # Ubuntu's default nodejs is older than the onboarder's floor — NodeSource 22
       node)
-        curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - > /dev/null
+        curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - > /dev/null || manual_prereq_stop "$@"
         apt_pkgs+=(nodejs)
         ;;
       *) apt_pkgs+=("$m") ;;
     esac
   done
-  sudo apt-get install -y "${apt_pkgs[@]}"
+  sudo apt-get install -y "${apt_pkgs[@]}" || manual_prereq_stop "$@"
 }
 
 manual_auth_stop() {
@@ -178,6 +181,8 @@ manual_scope_stop() {
   echo "" >&2
   echo "  Couldn't add the 'read packages' permission. Add it, then paste the install command again:" >&2
   echo "    gh auth refresh -s read:packages" >&2
+  echo "  (If gh says it can't refresh — e.g. you authenticate via a GITHUB_TOKEN env var or a" >&2
+  echo "   fine-grained token — mint that token with the packages read permission instead.)" >&2
   exit 1
 }
 
